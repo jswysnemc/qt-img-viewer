@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Qt Image Viewer
+Name[zh_CN]=Qt 图片查看器
 Comment=View images with directory thumbnails, zoom, pan, and always-on-top toggle
+Comment[zh_CN]=带目录缩略图、缩放、拖动和悬浮置顶功能的图片查看器
 Exec=qt-img-viewer %F
+Icon=qt-img-viewer
 Terminal=false
 Categories=Graphics;Viewer;
 MimeType=image/bmp;image/gif;image/jpeg;image/png;image/svg+xml;image/svg+xml-compressed;image/tiff;image/webp;image/x-portable-bitmap;image/x-portable-graymap;image/x-portable-pixmap;image/x-xbitmap;image/x-xpixmap;

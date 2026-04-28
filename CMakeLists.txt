@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(QtImageViewer VERSION 0.1.0 LANGUAGES CXX)
+project(QtImageViewer VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent LinguistTools Widgets)
 
@@ -34,5 +36,6 @@ set_target_properties(qt-img-viewer PROPERTIES
     MACOSX_BUNDLE TRUE
 )
 
-install(TARGETS qt-img-viewer)
-install(FILES data/qt-img-viewer.desktop DESTINATION share/applications)
+install(TARGETS qt-img-viewer RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES data/qt-img-viewer.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES data/qt-img-viewer.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)

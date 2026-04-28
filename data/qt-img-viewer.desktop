@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Qt Image Viewer
+Comment=View images with directory thumbnails, zoom, pan, and always-on-top toggle
+Exec=qt-img-viewer %F
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/bmp;image/gif;image/jpeg;image/png;image/svg+xml;image/svg+xml-compressed;image/tiff;image/webp;image/x-portable-bitmap;image/x-portable-graymap;image/x-portable-pixmap;image/x-xbitmap;image/x-xpixmap;

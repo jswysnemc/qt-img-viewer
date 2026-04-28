@@ -1,0 +1,93 @@
+name: Publish AUR
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  aur:
+    name: Push qt-img-viewer to AUR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve tag
+        id: version
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "No release tag was provided" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+
+      - name: Prepare AUR files
+        run: |
+          mkdir -p aur-work
+          cp packaging/aur/PKGBUILD aur-work/PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.version.outputs.version }}/" aur-work/PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" aur-work/PKGBUILD
+
+      - name: Generate checksums and .SRCINFO
+        run: |
+          docker run --rm \
+            -v "$PWD/aur-work:/pkg" \
+            -w /pkg \
+            archlinux:base-devel \
+            bash -lc 'pacman -Sy --noconfirm pacman-contrib >/dev/null && updpkgsums && makepkg --printsrcinfo > .SRCINFO'
+
+      - name: Configure SSH
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
+            echo "AUR_SSH_PRIVATE_KEY is not set" >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Push to AUR
+        env:
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/aur -o IdentitiesOnly=yes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git clone ssh://aur@aur.archlinux.org/qt-img-viewer.git aur-repo; then
+            :
+          else
+            mkdir aur-repo
+            git -C aur-repo init
+            git -C aur-repo remote add origin ssh://aur@aur.archlinux.org/qt-img-viewer.git
+          fi
+
+          cp aur-work/PKGBUILD aur-work/.SRCINFO aur-repo/
+          git -C aur-repo branch -M master
+          git -C aur-repo add PKGBUILD .SRCINFO
+
+          if git -C aur-repo diff --cached --quiet; then
+            echo "AUR package is already up to date"
+            exit 0
+          fi
+
+          git -C aur-repo commit -m "Update to ${{ steps.version.outputs.version }}"
+          git -C aur-repo push origin master

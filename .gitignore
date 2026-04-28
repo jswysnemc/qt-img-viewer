@@ -1,0 +1,34 @@
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+out/
+dist/
+install/
+
+# CMake and Qt Creator local state
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+.qt/
+*.user
+*.user.*
+*.autosave
+
+# Generated Qt translation binaries
+*.qm
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Packaging scratch files
+packaging/aur/pkg/
+packaging/aur/src/
+*.pkg.tar.*
+*.src.tar.*

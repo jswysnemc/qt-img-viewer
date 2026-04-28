@@ -47,10 +47,13 @@ protected:
 private:
     void applyScale(double factor);
     void setZoomFactor(double factor);
+    void updateDisplayedPixmap();
     void updateSceneRect();
+    void zoomAt(const QPoint &position, double factor);
 
     QGraphicsScene *m_scene = nullptr;
     QGraphicsPixmapItem *m_pixmapItem = nullptr;
+    QPixmap m_sourcePixmap;
     QString m_imagePath;
     bool m_windowDragEnabled = false;
     bool m_windowDragging = false;

@@ -16,6 +16,12 @@ namespace {
 constexpr double kZoomStep = 1.18;
 constexpr double kMinZoom = 0.05;
 constexpr double kMaxZoom = 32.0;
+constexpr qsizetype kMaxCachedPixels = 120'000'000;
+
+QSize scaledSize(const QSize &size, double factor)
+{
+    return {qMax(1, qRound(size.width() * factor)), qMax(1, qRound(size.height() * factor))};
+}
 }
 
 ImageView::ImageView(QWidget *parent)
@@ -30,7 +36,8 @@ ImageView::ImageView(QWidget *parent)
     setBackgroundBrush(QColor(239, 236, 229));
     setDragMode(QGraphicsView::ScrollHandDrag);
     setFrameShape(QFrame::NoFrame);
-    setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
+    setRenderHint(QPainter::Antialiasing, false);
+    setRenderHint(QPainter::SmoothPixmapTransform, false);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
@@ -38,17 +45,17 @@ ImageView::ImageView(QWidget *parent)
 
 bool ImageView::hasImage() const
 {
-    return !m_pixmapItem->pixmap().isNull();
+    return !m_sourcePixmap.isNull();
 }
 
 QSize ImageView::imageSize() const
 {
-    return m_pixmapItem->pixmap().size();
+    return m_sourcePixmap.size();
 }
 
 QPixmap ImageView::pixmap() const
 {
-    return m_pixmapItem->pixmap();
+    return m_sourcePixmap;
 }
 
 double ImageView::imageOpacity() const
@@ -68,6 +75,7 @@ QString ImageView::imagePath() const
 
 void ImageView::clearImage()
 {
+    m_sourcePixmap = {};
     m_pixmapItem->setPixmap({});
     m_imagePath.clear();
     m_zoomFactor = 1.0;
@@ -84,9 +92,17 @@ void ImageView::fitToWindow()
     }
 
     m_fitMode = true;
-    resetTransform();
-    fitInView(m_pixmapItem, Qt::KeepAspectRatio);
-    m_zoomFactor = transform().m11();
+    const QSize sourceSize = m_sourcePixmap.size();
+    const QSize viewSize = viewport()->size();
+    if (!sourceSize.isValid() || !viewSize.isValid()) {
+        return;
+    }
+
+    const double xFactor = double(viewSize.width()) / double(sourceSize.width());
+    const double yFactor = double(viewSize.height()) / double(sourceSize.height());
+    m_zoomFactor = std::clamp(std::min(xFactor, yFactor), kMinZoom, kMaxZoom);
+    updateDisplayedPixmap();
+    centerOn(m_pixmapItem);
     emit zoomChanged(m_zoomFactor);
 }
 
@@ -105,27 +121,28 @@ void ImageView::resetZoom()
 void ImageView::setImage(const QPixmap &pixmap, const QString &path)
 {
     const double opacity = m_pixmapItem->opacity();
-    m_pixmapItem->setPixmap(pixmap);
+    m_sourcePixmap = pixmap;
     m_pixmapItem->setOpacity(opacity);
     m_imagePath = path;
-    updateSceneRect();
     fitToWindow();
 }
 
 void ImageView::setImageFrame(const QPixmap &pixmap)
 {
-    const bool sizeChanged = pixmap.size() != m_pixmapItem->pixmap().size();
+    const bool sizeChanged = pixmap.size() != m_sourcePixmap.size();
     const double opacity = m_pixmapItem->opacity();
-    m_pixmapItem->setPixmap(pixmap);
+    m_sourcePixmap = pixmap;
     m_pixmapItem->setOpacity(opacity);
     if (!sizeChanged) {
+        updateDisplayedPixmap();
         viewport()->update();
         return;
     }
 
-    updateSceneRect();
     if (m_fitMode) {
         fitToWindow();
+    } else {
+        updateDisplayedPixmap();
     }
 }
 
@@ -151,12 +168,12 @@ void ImageView::setWindowDragEnabled(bool enabled)
 
 void ImageView::zoomIn()
 {
-    applyScale(kZoomStep);
+    zoomAt(viewport()->rect().center(), kZoomStep);
 }
 
 void ImageView::zoomOut()
 {
-    applyScale(1.0 / kZoomStep);
+    zoomAt(viewport()->rect().center(), 1.0 / kZoomStep);
 }
 
 void ImageView::contextMenuEvent(QContextMenuEvent *event)
@@ -260,7 +277,7 @@ void ImageView::wheelEvent(QWheelEvent *event)
         return;
     }
 
-    applyScale(delta > 0 ? kZoomStep : 1.0 / kZoomStep);
+    zoomAt(event->position().toPoint(), delta > 0 ? kZoomStep : 1.0 / kZoomStep);
     event->accept();
 }
 
@@ -277,14 +294,47 @@ void ImageView::applyScale(double factor)
     }
 
     m_fitMode = false;
-    scale(effectiveFactor, effectiveFactor);
-    setZoomFactor(target);
+    zoomAt(viewport()->rect().center(), effectiveFactor);
 }
 
 void ImageView::setZoomFactor(double factor)
 {
+    QPointF imageCenter;
+    if (m_zoomFactor > 0.0) {
+        imageCenter = mapToScene(viewport()->rect().center()) / m_zoomFactor;
+    }
+
     m_zoomFactor = factor;
+    updateDisplayedPixmap();
+    if (!imageCenter.isNull()) {
+        centerOn(imageCenter * m_zoomFactor);
+    }
     emit zoomChanged(m_zoomFactor);
+}
+
+void ImageView::updateDisplayedPixmap()
+{
+    if (!hasImage()) {
+        m_pixmapItem->setScale(1.0);
+        m_pixmapItem->setPixmap({});
+        updateSceneRect();
+        return;
+    }
+
+    const QSize targetSize = scaledSize(m_sourcePixmap.size(), m_zoomFactor);
+    const qsizetype targetPixels = qsizetype(targetSize.width()) * qsizetype(targetSize.height());
+    const bool useCache = targetSize != m_sourcePixmap.size() && targetPixels <= kMaxCachedPixels;
+
+    if (useCache) {
+        const QImage scaled = m_sourcePixmap.toImage().scaled(targetSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        m_pixmapItem->setPixmap(QPixmap::fromImage(scaled));
+        m_pixmapItem->setScale(1.0);
+    } else {
+        m_pixmapItem->setPixmap(m_sourcePixmap);
+        m_pixmapItem->setScale(m_zoomFactor);
+    }
+
+    updateSceneRect();
 }
 
 void ImageView::updateSceneRect()
@@ -295,5 +345,28 @@ void ImageView::updateSceneRect()
     }
 
     m_pixmapItem->setOffset(0, 0);
-    m_scene->setSceneRect(m_pixmapItem->boundingRect());
+    m_scene->setSceneRect(QRectF(QPointF(0, 0), QSizeF(scaledSize(m_sourcePixmap.size(), m_zoomFactor))));
+}
+
+void ImageView::zoomAt(const QPoint &position, double factor)
+{
+    if (!hasImage()) {
+        return;
+    }
+
+    const double target = std::clamp(m_zoomFactor * factor, kMinZoom, kMaxZoom);
+    const double effectiveFactor = target / m_zoomFactor;
+    if (qFuzzyCompare(effectiveFactor, 1.0)) {
+        return;
+    }
+
+    const QPoint viewportCenter = viewport()->rect().center();
+    const QPointF imagePoint = mapToScene(position) / m_zoomFactor;
+    const QPointF cursorOffset = QPointF(viewportCenter - position);
+
+    m_fitMode = false;
+    m_zoomFactor = target;
+    updateDisplayedPixmap();
+    centerOn(imagePoint * m_zoomFactor + cursorOffset);
+    emit zoomChanged(m_zoomFactor);
 }

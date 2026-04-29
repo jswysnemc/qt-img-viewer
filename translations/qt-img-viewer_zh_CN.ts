@@ -15,6 +15,10 @@
         <source>Image file or directory to open.</source>
         <translation>要打开的图片文件或目录。</translation>
     </message>
+    <message>
+        <source>Open the provided image path directly in floating mode.</source>
+        <translation>以悬浮模式直接打开传入的图片路径。</translation>
+    </message>
 </context>
 <context>
     <name>MainWindow</name>
@@ -57,6 +61,10 @@
     <message>
         <source>Decrease opacity</source>
         <translation>降低不透明度</translation>
+    </message>
+    <message>
+        <source>Return to window</source>
+        <translation>回到窗口</translation>
     </message>
     <message>
         <source>Close</source>

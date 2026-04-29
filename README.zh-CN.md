@@ -41,6 +41,12 @@ cmake --build build
 ./build/qt-img-viewer /path/to/image-or-directory
 ```
 
+直接以悬浮模式打开图片：
+
+```bash
+./build/qt-img-viewer --float /path/to/image
+```
+
 指定界面语言：
 
 ```bash

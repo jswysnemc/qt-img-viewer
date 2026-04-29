@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QLibraryInfo>
 #include <QLocale>
@@ -89,6 +90,10 @@ int main(int argc, char *argv[])
     QCommandLineParser parser;
     parser.setApplicationDescription(QCoreApplication::translate("main", "Qt image viewer"));
     parser.addHelpOption();
+    const QCommandLineOption floatOption(
+        QStringList{QStringLiteral("f"), QStringLiteral("float")},
+        QCoreApplication::translate("main", "Open the provided image path directly in floating mode."));
+    parser.addOption(floatOption);
     parser.addPositionalArgument(QStringLiteral("path"), QCoreApplication::translate("main", "Image file or directory to open."), QStringLiteral("[path]"));
     parser.process(app);
 
@@ -96,7 +101,7 @@ int main(int argc, char *argv[])
     window.show();
     const QStringList paths = parser.positionalArguments();
     if (!paths.isEmpty()) {
-        window.openPath(paths.first());
+        window.openPath(paths.first(), parser.isSet(floatOption));
     }
 
     return app.exec();

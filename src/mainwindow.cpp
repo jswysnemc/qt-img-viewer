@@ -276,15 +276,17 @@ MainWindow::MainWindow(QWidget *parent)
     updateWindowTitle();
 }
 
-void MainWindow::openPath(const QString &path)
+void MainWindow::openPath(const QString &path, bool floatImageOnly)
 {
     const QFileInfo fileInfo(path);
+    m_floatAfterLoadOnce = false;
     if (fileInfo.isDir()) {
         loadDirectory(fileInfo.absoluteFilePath());
         return;
     }
 
     if (fileInfo.isFile()) {
+        m_floatAfterLoadOnce = floatImageOnly;
         loadDirectory(fileInfo.absolutePath(), fileInfo.absoluteFilePath());
     }
 }
@@ -383,7 +385,8 @@ void MainWindow::showFloatingContextMenu(const QPoint &globalPos)
         adjustFloatingOpacity(-0.1);
     });
     menu.addSeparator();
-    menu.addAction(tr("Close"), this, &MainWindow::closeFloatingImageMode);
+    menu.addAction(tr("Return to window"), this, &MainWindow::closeFloatingImageMode);
+    menu.addAction(tr("Close"), qApp, &QApplication::quit);
 
     menu.exec(globalPos);
 }
@@ -697,6 +700,21 @@ void MainWindow::copyFloatingImageToClipboard()
     }
 }
 
+void MainWindow::enterFloatingModeAfterLoad()
+{
+    if (!m_floatAfterLoadOnce || !m_imageView->hasImage()) {
+        return;
+    }
+
+    m_floatAfterLoadOnce = false;
+    if (m_alwaysOnTopAction->isChecked()) {
+        resizeFloatingWindowToImage();
+        return;
+    }
+
+    m_alwaysOnTopAction->setChecked(true);
+}
+
 void MainWindow::loadDirectory(const QString &directoryPath, const QString &preferredPath)
 {
     ++m_thumbnailGeneration;
@@ -710,6 +728,7 @@ void MainWindow::loadDirectory(const QString &directoryPath, const QString &pref
 
     const QStringList images = collectImages(directoryPath);
     if (images.isEmpty()) {
+        m_floatAfterLoadOnce = false;
         QMessageBox::information(this, tr("No images"), tr("This directory has no supported images."));
         return;
     }
@@ -770,6 +789,7 @@ bool MainWindow::loadImage(const QString &path)
 
         const ImageLoadResult result = watcher->result();
         if (result.image.isNull()) {
+            m_floatAfterLoadOnce = false;
             QMessageBox::warning(this, tr("Cannot open image"), tr("Failed to read image:\n%1\n\n%2").arg(result.path, result.error));
             updateActions();
             return;
@@ -783,6 +803,7 @@ bool MainWindow::loadImage(const QString &path)
         resizeFloatingWindowToImage();
         updateWindowTitle();
         updateActions();
+        enterFloatingModeAfterLoad();
     });
 
     watcher->setFuture(QtConcurrent::run(readImageFile, path));
@@ -796,6 +817,7 @@ bool MainWindow::loadAnimatedGif(const QString &path, int generation)
     if (!movie->isValid()) {
         const QString error = movie->lastErrorString();
         movie->deleteLater();
+        m_floatAfterLoadOnce = false;
         QMessageBox::warning(this, tr("Cannot open image"), tr("Failed to read image:\n%1\n\n%2").arg(path, error));
         updateActions();
         return false;
@@ -823,6 +845,7 @@ bool MainWindow::loadAnimatedGif(const QString &path, int generation)
     if (firstFrame.isNull()) {
         const QString error = movie->lastErrorString();
         stopMovie();
+        m_floatAfterLoadOnce = false;
         QMessageBox::warning(this, tr("Cannot open image"), tr("Failed to read image:\n%1\n\n%2").arg(path, error));
         updateActions();
         return false;
@@ -836,6 +859,7 @@ bool MainWindow::loadAnimatedGif(const QString &path, int generation)
     resizeFloatingWindowToImage();
     updateWindowTitle();
     updateActions();
+    enterFloatingModeAfterLoad();
 
     movie->start();
     return true;

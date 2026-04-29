@@ -41,6 +41,12 @@ Open a file or directory directly:
 ./build/qt-img-viewer /path/to/image-or-directory
 ```
 
+Open an image directly in floating mode:
+
+```bash
+./build/qt-img-viewer --float /path/to/image
+```
+
 Select a UI language:
 
 ```bash

@@ -35,7 +35,7 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    void openPath(const QString &path);
+    void openPath(const QString &path, bool floatImageOnly = false);
 
 private slots:
     void openDirectory();
@@ -60,6 +60,7 @@ private:
     void adjustFloatingOpacity(double delta);
     void closeFloatingImageMode();
     void copyFloatingImageToClipboard();
+    void enterFloatingModeAfterLoad();
     bool loadAnimatedGif(const QString &path, int generation);
     void loadDirectory(const QString &directoryPath, const QString &preferredPath = {});
     bool loadImage(const QString &path);
@@ -108,4 +109,5 @@ private:
     int m_imageLoadGeneration = 0;
     int m_thumbnailGeneration = 0;
     bool m_imageOnlyMode = false;
+    bool m_floatAfterLoadOnce = false;
 };

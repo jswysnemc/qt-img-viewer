@@ -8,9 +8,12 @@
 #include <QApplication>
 #include <QBrush>
 #include <QClipboard>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QImageReader>
 #include <QKeySequence>
 #include <QLabel>
@@ -255,7 +258,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_thumbnailList, &QListWidget::itemActivated, this, &MainWindow::openSelectedThumbnail);
     connect(m_thumbnailList, &QListWidget::itemClicked, this, &MainWindow::openSelectedThumbnail);
-    connect(m_imageView, &ImageView::contextMenuRequested, this, &MainWindow::showFloatingContextMenu);
+    connect(m_imageView, &ImageView::contextMenuRequested, this, &MainWindow::showContextMenu);
     connect(m_imageView, &ImageView::zoomChanged, this, &MainWindow::updateZoomLabel);
     connect(m_imageView, &ImageView::zoomChanged, this, [this] {
         if (m_imageOnlyMode) {
@@ -347,26 +350,37 @@ void MainWindow::setAlwaysOnTop(bool enabled)
     applyImageOnlyMode(enabled);
 }
 
-void MainWindow::showFloatingContextMenu(const QPoint &globalPos)
+void MainWindow::showContextMenu(const QPoint &globalPos)
 {
-    if (!m_imageOnlyMode || !m_imageView->hasImage()) {
+    if (!m_imageView->hasImage()) {
         return;
     }
 
     QMenu menu(this);
-    menu.setStyleSheet(QStringLiteral(
-        "QMenu {"
-        "  background: #f4faf3;"
-        "  color: #102218;"
-        "  border: 1px solid #c6d7c5;"
-        "  padding: 4px 0;"
-        "}"
-        "QMenu::item {"
-        "  padding: 7px 20px;"
-        "}"
-        "QMenu::item:selected {"
-        "  background: #d8ebd6;"
-        "}"));
+    if (m_imageOnlyMode) {
+        menu.setStyleSheet(QStringLiteral(
+            "QMenu {"
+            "  background: #f4faf3;"
+            "  color: #102218;"
+            "  border: 1px solid #c6d7c5;"
+            "  padding: 4px 0;"
+            "}"
+            "QMenu::item {"
+            "  padding: 7px 20px;"
+            "}"
+            "QMenu::item:selected {"
+            "  background: #d8ebd6;"
+            "}"));
+    }
+
+    menu.addAction(tr("Image details"), this, &MainWindow::showImageDetails);
+    menu.addSeparator();
+
+    if (m_images.size() > 1) {
+        menu.addAction(tr("Previous image"), this, &MainWindow::openPreviousImage);
+        menu.addAction(tr("Next image"), this, &MainWindow::openNextImage);
+        menu.addSeparator();
+    }
 
     menu.addAction(tr("Copy to clipboard"), this, &MainWindow::copyFloatingImageToClipboard);
     menu.addAction(tr("Save to file"), this, &MainWindow::saveFloatingImageAs);
@@ -378,17 +392,128 @@ void MainWindow::showFloatingContextMenu(const QPoint &globalPos)
         rotateImage(-90);
     });
     menu.addSeparator();
-    menu.addAction(tr("Increase opacity"), this, [this] {
-        adjustFloatingOpacity(0.1);
-    });
-    menu.addAction(tr("Decrease opacity"), this, [this] {
-        adjustFloatingOpacity(-0.1);
-    });
+    menu.addAction(tr("Zoom in"), m_imageView, &ImageView::zoomIn);
+    menu.addAction(tr("Zoom out"), m_imageView, &ImageView::zoomOut);
+    menu.addAction(tr("Fit to window"), m_imageView, &ImageView::fitToWindow);
+    menu.addAction(tr("Actual size"), m_imageView, &ImageView::resetZoom);
+
+    if (m_imageOnlyMode) {
+        menu.addSeparator();
+        menu.addAction(tr("Increase opacity"), this, [this] {
+            adjustFloatingOpacity(0.1);
+        });
+        menu.addAction(tr("Decrease opacity"), this, [this] {
+            adjustFloatingOpacity(-0.1);
+        });
+    }
+
     menu.addSeparator();
-    menu.addAction(tr("Return to window"), this, &MainWindow::closeFloatingImageMode);
+
+    if (m_imageOnlyMode) {
+        menu.addAction(tr("Return to window"), this, &MainWindow::closeFloatingImageMode);
+    } else {
+        menu.addAction(m_alwaysOnTopAction->text(), this, [this] {
+            m_alwaysOnTopAction->setChecked(true);
+        });
+    }
+
     menu.addAction(tr("Close"), qApp, &QApplication::quit);
 
     menu.exec(globalPos);
+}
+
+void MainWindow::showImageDetails()
+{
+    if (!m_imageView->hasImage()) {
+        return;
+    }
+
+    const QString path = m_imageView->imagePath();
+    const QFileInfo fileInfo(path);
+    const QImage image = m_imageView->pixmap().toImage();
+
+    auto *dialog = new QDialog(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(tr("Image Details"));
+    dialog->setMinimumWidth(360);
+
+    auto *layout = new QFormLayout(dialog);
+    layout->setContentsMargins(20, 18, 20, 18);
+    layout->setSpacing(8);
+    layout->setLabelAlignment(Qt::AlignRight);
+
+    const auto addRow = [&](const QString &label, const QString &value) {
+        auto *valueLabel = new QLabel(value, dialog);
+        valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        valueLabel->setWordWrap(true);
+        layout->addRow(label, valueLabel);
+    };
+
+    addRow(tr("File name:"), fileInfo.fileName());
+    addRow(tr("Path:"), fileInfo.absoluteFilePath());
+    addRow(tr("Format:"), fileInfo.suffix().toUpper());
+
+    addRow(tr("Dimensions:"), tr("%1 x %2 pixels").arg(image.width()).arg(image.height()));
+    addRow(tr("Color depth:"), tr("%1 bit").arg(image.depth()));
+    if (image.colorCount() > 0) {
+        addRow(tr("Color count:"), QString::number(image.colorCount()));
+    }
+    if (image.bitPlaneCount() > 0) {
+        addRow(tr("Bit planes:"), QString::number(image.bitPlaneCount()));
+    }
+    if (image.dotsPerMeterX() > 0 || image.dotsPerMeterY() > 0) {
+        const qreal dpiX = image.dotsPerMeterX() * 0.0254;
+        const qreal dpiY = image.dotsPerMeterY() * 0.0254;
+        if (qFuzzyCompare(dpiX, dpiY)) {
+            addRow(tr("Resolution:"), tr("%1 DPI").arg(qRound(dpiX)));
+        } else {
+            addRow(tr("Resolution:"), tr("%1 x %2 DPI").arg(qRound(dpiX)).arg(qRound(dpiY)));
+        }
+    }
+    const QImage::Format fmt = image.format();
+    switch (fmt) {
+    case QImage::Format_Mono:
+    case QImage::Format_MonoLSB:
+        addRow(tr("Pixel format:"), tr("Monochrome")); break;
+    case QImage::Format_Indexed8:
+        addRow(tr("Pixel format:"), tr("Indexed 8-bit")); break;
+    case QImage::Format_RGB32:
+        addRow(tr("Pixel format:"), tr("RGB 32-bit")); break;
+    case QImage::Format_ARGB32:
+        addRow(tr("Pixel format:"), tr("ARGB 32-bit")); break;
+    case QImage::Format_RGB16:
+        addRow(tr("Pixel format:"), tr("RGB 16-bit")); break;
+    case QImage::Format_RGB888:
+        addRow(tr("Pixel format:"), tr("RGB 888")); break;
+    case QImage::Format_RGBX8888:
+        addRow(tr("Pixel format:"), tr("RGBX 8888")); break;
+    case QImage::Format_RGBA8888:
+        addRow(tr("Pixel format:"), tr("RGBA 8888")); break;
+    case QImage::Format_Grayscale8:
+        addRow(tr("Pixel format:"), tr("Grayscale 8-bit")); break;
+    case QImage::Format_Grayscale16:
+        addRow(tr("Pixel format:"), tr("Grayscale 16-bit")); break;
+    default:
+        break;
+    }
+
+    addRow(tr("File size:"), formatFileSize(fileInfo.size()));
+    addRow(tr("Last modified:"), QLocale::system().toString(fileInfo.lastModified(), QLocale::ShortFormat));
+
+    if (!image.textKeys().isEmpty()) {
+        for (const QString &key : image.textKeys()) {
+            const QString value = image.text(key);
+            if (!value.isEmpty()) {
+                addRow(key + QStringLiteral(":"), value);
+            }
+        }
+    }
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    connect(buttonBox, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+    layout->addRow(buttonBox);
+
+    dialog->show();
 }
 
 void MainWindow::showAbout()
@@ -566,6 +691,11 @@ void MainWindow::buildActions()
 
 void MainWindow::buildStatusBar()
 {
+    m_pixelLabel = new QLabel(this);
+    m_pixelLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_pixelLabel->hide();
+    statusBar()->addPermanentWidget(m_pixelLabel);
+
     m_zoomLabel->setMinimumWidth(72);
     m_zoomLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     statusBar()->addPermanentWidget(m_zoomLabel);
@@ -798,6 +928,8 @@ bool MainWindow::loadImage(const QString &path)
         m_imageView->setImage(QPixmap::fromImage(result.image), result.path);
         const int imageIndex = m_images.indexOf(result.path);
         const QString position = imageIndex >= 0 ? tr("  %1 / %2").arg(imageIndex + 1).arg(m_images.size()) : QString();
+        m_pixelLabel->setText(tr("%1 x %2").arg(result.image.width()).arg(result.image.height()));
+        m_pixelLabel->show();
         statusBar()->showMessage(tr("%1  %2 x %3%4").arg(result.path).arg(result.image.width()).arg(result.image.height()).arg(position));
         selectThumbnail(result.path);
         resizeFloatingWindowToImage();
@@ -854,6 +986,8 @@ bool MainWindow::loadAnimatedGif(const QString &path, int generation)
     m_imageView->setImage(firstFrame, path);
     const int imageIndex = m_images.indexOf(path);
     const QString position = imageIndex >= 0 ? tr("  %1 / %2").arg(imageIndex + 1).arg(m_images.size()) : QString();
+    m_pixelLabel->setText(tr("%1 x %2").arg(firstFrame.width()).arg(firstFrame.height()));
+    m_pixelLabel->show();
     statusBar()->showMessage(tr("%1  %2 x %3  GIF%4").arg(path).arg(firstFrame.width()).arg(firstFrame.height()).arg(position));
     selectThumbnail(path);
     resizeFloatingWindowToImage();
@@ -1035,4 +1169,15 @@ void MainWindow::updateWindowTitle()
     if (m_titleBar) {
         m_titleBar->setTitle(title);
     }
+}
+
+QString MainWindow::formatFileSize(qint64 bytes)
+{
+    if (bytes < 1024) {
+        return QString::number(bytes) + QStringLiteral(" B");
+    }
+    if (bytes < 1024 * 1024) {
+        return QStringLiteral("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
+    }
+    return QStringLiteral("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 1);
 }

@@ -44,7 +44,8 @@ private slots:
     void openNextImage();
     void openPreviousImage();
     void setAlwaysOnTop(bool enabled);
-    void showFloatingContextMenu(const QPoint &globalPos);
+    void showContextMenu(const QPoint &globalPos);
+    void showImageDetails();
     void showAbout();
     void toggleThumbnailPanel();
     void updateActions();
@@ -72,11 +73,13 @@ private:
     void stopMovie();
     QString supportedFormatFilter() const;
     void updateWindowTitle();
+    static QString formatFileSize(qint64 bytes);
 
     ImageView *m_imageView = nullptr;
     QListWidget *m_thumbnailList = nullptr;
     QSplitter *m_splitter = nullptr;
     TitleBar *m_titleBar = nullptr;
+    QLabel *m_pixelLabel = nullptr;
     QLabel *m_zoomLabel = nullptr;
 
     QAction *m_openFileAction = nullptr;

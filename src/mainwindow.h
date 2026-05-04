@@ -36,6 +36,7 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     void openPath(const QString &path, bool floatImageOnly = false);
+    void floatNextOpenedImage();
 
 private slots:
     void openDirectory();

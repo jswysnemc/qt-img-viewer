@@ -294,6 +294,11 @@ void MainWindow::openPath(const QString &path, bool floatImageOnly)
     }
 }
 
+void MainWindow::floatNextOpenedImage()
+{
+    m_floatAfterLoadOnce = true;
+}
+
 void MainWindow::openDirectory()
 {
     const QString startDir = m_currentDirectory.isEmpty() ? defaultPicturesDirectory() : m_currentDirectory;

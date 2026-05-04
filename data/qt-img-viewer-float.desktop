@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Qt Image Viewer Floating
+Name[zh_CN]=Qt 图片查看器悬浮模式
+Comment=Open images in image-only always-on-top mode
+Comment[zh_CN]=以只显示图片的悬浮置顶模式打开图片
+Exec=qt-img-viewer --float %F
+Icon=qt-img-viewer
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/bmp;image/gif;image/jpeg;image/png;image/svg+xml;image/svg+xml-compressed;image/tiff;image/webp;image/x-portable-bitmap;image/x-portable-graymap;image/x-portable-pixmap;image/x-xbitmap;image/x-xpixmap;

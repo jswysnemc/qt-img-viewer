@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     const QCommandLineOption floatOption(
         QStringList{QStringLiteral("f"), QStringLiteral("float")},
-        QCoreApplication::translate("main", "Open the provided image path directly in floating mode."));
+        QCoreApplication::translate("main", "Open the provided image path or next selected image in floating mode."));
     parser.addOption(floatOption);
     parser.addPositionalArgument(QStringLiteral("path"), QCoreApplication::translate("main", "Image file or directory to open."), QStringLiteral("[path]"));
     parser.process(app);
@@ -102,6 +102,8 @@ int main(int argc, char *argv[])
     const QStringList paths = parser.positionalArguments();
     if (!paths.isEmpty()) {
         window.openPath(paths.first(), parser.isSet(floatOption));
+    } else if (parser.isSet(floatOption)) {
+        window.floatNextOpenedImage();
     }
 
     return app.exec();

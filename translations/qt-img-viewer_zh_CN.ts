@@ -512,8 +512,8 @@
     </message>
     <message>
         <location filename="../src/main.cpp" line="95"/>
-        <source>Open the provided image path directly in floating mode.</source>
-        <translation>以悬浮模式直接打开传入的图片路径。</translation>
+        <source>Open the provided image path or next selected image in floating mode.</source>
+        <translation>以悬浮模式打开传入的图片路径或下一张选中的图片。</translation>
     </message>
 </context>
 </TS>

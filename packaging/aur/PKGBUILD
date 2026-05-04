@@ -1,5 +1,5 @@
 pkgname=qt-img-viewer
-pkgver=0.1.2
+pkgver=0.1.4
 pkgrel=1
 pkgdesc='Qt 6 image viewer with directory thumbnails, animated GIF playback, and image-only floating mode'
 arch=('x86_64')

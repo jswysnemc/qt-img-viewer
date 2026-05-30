@@ -8,31 +8,112 @@ on:
       - 'v*'
   pull_request:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Optional ref to build, for example v0.1.5'
+        required: false
+        type: string
+      upload_release:
+        description: 'Upload artifacts to the GitHub Release for the selected tag'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  QT_VERSION: 6.8.3
 
 jobs:
   linux:
-    name: Linux Qt 6
-    runs-on: ubuntu-latest
+    name: Linux binary and deb
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
             cmake \
-            g++ \
+            dpkg-dev \
+            fakeroot \
+            file \
             ninja-build \
-            qt6-base-dev \
-            qt6-tools-dev \
-            qt6-tools-dev-tools \
-            qt6-image-formats-plugins \
-            libgl1-mesa-dev
+            patchelf \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libfreetype6 \
+            libgl1 \
+            libgl1-mesa-dev \
+            libglib2.0-0 \
+            libx11-6 \
+            libx11-xcb1 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-glx0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-sync1 \
+            libxcb-xfixes0 \
+            libxcb-xinerama0 \
+            libxcb-xinput0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtimageformats qtsvg qttools
+          cache: true
+
+      - name: Resolve package metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^project\(QtImageViewer VERSION ([^ ]+) LANGUAGES CXX\)$/\1/p' CMakeLists.txt)"
+          if [ -z "$VERSION" ]; then
+            echo "Unable to resolve project version from CMakeLists.txt" >&2
+            exit 1
+          fi
+
+          RELEASE_TAG=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.upload_release }}" = "true" ]; then
+            RELEASE_TAG="${{ inputs.ref }}"
+            if [ -z "$RELEASE_TAG" ]; then
+              RELEASE_TAG="${GITHUB_REF_NAME}"
+            fi
+          fi
+          case "$RELEASE_TAG" in
+            ""|v*) ;;
+            *)
+              echo "Release upload requires a tag that starts with v, got: $RELEASE_TAG" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Configure
         run: |
@@ -43,14 +124,146 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Install into artifact tree
+      - name: Bundle Linux binary
         run: |
-          cmake --install build --prefix "$PWD/app"
-          tar -C app -czf qt-img-viewer-linux-x86_64.tar.gz .
+          set -euo pipefail
+
+          APPDIR="$PWD/package-root"
+          LIBDIR="$APPDIR/usr/lib/qt-img-viewer"
+          PLUGINDIR="$LIBDIR/plugins"
+          DISTDIR="$PWD/dist"
+
+          rm -rf "$APPDIR" "$DISTDIR"
+          mkdir -p "$LIBDIR" "$PLUGINDIR" "$DISTDIR"
+
+          cmake --install build --prefix "$APPDIR/usr"
+          install -Dm644 LICENSE "$APPDIR/usr/share/licenses/qt-img-viewer/LICENSE"
+
+          mv "$APPDIR/usr/bin/qt-img-viewer" "$LIBDIR/qt-img-viewer"
+          cat > "$APPDIR/usr/bin/qt-img-viewer" <<'EOF'
+          #!/bin/sh
+          prefix="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+          export QT_PLUGIN_PATH="$prefix/lib/qt-img-viewer/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+          exec "$prefix/lib/qt-img-viewer/qt-img-viewer" "$@"
+          EOF
+          chmod 755 "$APPDIR/usr/bin/qt-img-viewer"
+
+          cat > "$LIBDIR/qt.conf" <<'EOF'
+          [Paths]
+          Prefix = .
+          Plugins = plugins
+          EOF
+
+          QMAKE="$(command -v qmake6 || command -v qmake)"
+          QT_LIBS="$("$QMAKE" -query QT_INSTALL_LIBS)"
+          QT_PLUGINS="$("$QMAKE" -query QT_INSTALL_PLUGINS)"
+          export LD_LIBRARY_PATH="$LIBDIR:$QT_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+          install -d "$PLUGINDIR/platforms" "$PLUGINDIR/imageformats" "$PLUGINDIR/iconengines"
+          install -m 755 "$QT_PLUGINS/platforms/libqxcb.so" "$PLUGINDIR/platforms/"
+          if [ -d "$QT_PLUGINS/imageformats" ]; then
+            find "$QT_PLUGINS/imageformats" -maxdepth 1 -type f -name '*.so' -exec install -m 755 {} "$PLUGINDIR/imageformats/" \;
+          fi
+          if [ -d "$QT_PLUGINS/iconengines" ]; then
+            find "$QT_PLUGINS/iconengines" -maxdepth 1 -type f -name '*.so' -exec install -m 755 {} "$PLUGINDIR/iconengines/" \;
+          fi
+
+          copy_qt_deps() {
+            ldd "$1" | awk '{ for (i = 1; i <= NF; ++i) if ($i ~ /^\//) { print $i; break } }' | while read -r dep; do
+              case "$dep" in
+                "$QT_LIBS"/*)
+                  case "$QT_LIBS" in
+                    /usr/lib|/usr/lib/*|/lib|/lib/*)
+                      case "$(basename "$dep")" in
+                        libQt6*|libicu*|libpcre2-16*|libdouble-conversion*|libmd4c*) ;;
+                        *) continue ;;
+                      esac
+                      ;;
+                  esac
+                  target="$LIBDIR/$(basename "$dep")"
+                  if [ ! -e "$target" ]; then
+                    cp -L "$dep" "$target"
+                    chmod 755 "$target"
+                  fi
+                  ;;
+              esac
+            done
+          }
+
+          for _ in 1 2 3 4; do
+            while IFS= read -r -d '' elf; do
+              if file "$elf" | grep -q 'ELF'; then
+                copy_qt_deps "$elf"
+              fi
+            done < <(find "$LIBDIR" -type f -print0)
+          done
+
+          while IFS= read -r -d '' elf; do
+            if ! file "$elf" | grep -q 'ELF'; then
+              continue
+            fi
+            case "$elf" in
+              "$PLUGINDIR"/*)
+                patchelf --set-rpath '$ORIGIN:$ORIGIN/..:$ORIGIN/../..' "$elf"
+                ;;
+              *)
+                patchelf --set-rpath '$ORIGIN' "$elf"
+                ;;
+            esac
+          done < <(find "$LIBDIR" -type f -print0)
+
+          if ldd "$LIBDIR/qt-img-viewer" "$PLUGINDIR/platforms/libqxcb.so" | grep 'not found'; then
+            exit 1
+          fi
+
+          TARBALL_ROOT="$PWD/tarball-root/qt-img-viewer-${{ steps.meta.outputs.version }}-linux-x86_64"
+          rm -rf "$PWD/tarball-root"
+          mkdir -p "$TARBALL_ROOT"
+          cp -a "$APPDIR/." "$TARBALL_ROOT/"
+          tar -C "$PWD/tarball-root" -czf "$DISTDIR/qt-img-viewer-${{ steps.meta.outputs.version }}-linux-x86_64.tar.gz" "qt-img-viewer-${{ steps.meta.outputs.version }}-linux-x86_64"
+
+      - name: Build deb package
+        run: |
+          set -euo pipefail
+
+          DEBROOT="$PWD/deb-root"
+          DISTDIR="$PWD/dist"
+          rm -rf "$DEBROOT"
+          mkdir -p "$DEBROOT"
+          cp -a "$PWD/package-root/." "$DEBROOT/"
+          mkdir -p "$DEBROOT/DEBIAN"
+
+          INSTALLED_SIZE="$(du -ks "$DEBROOT/usr" | cut -f1)"
+          cat > "$DEBROOT/DEBIAN/control" <<EOF
+          Package: qt-img-viewer
+          Version: ${{ steps.meta.outputs.version }}
+          Architecture: amd64
+          Maintainer: jswysnemc <noreply@github.com>
+          Section: graphics
+          Priority: optional
+          Installed-Size: $INSTALLED_SIZE
+          Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libdbus-1-3, libegl1, libfontconfig1, libfreetype6, libgl1, libglib2.0-0, libx11-6, libx11-xcb1, libxkbcommon0, libxkbcommon-x11-0, libxcb1, libxcb-cursor0, libxcb-glx0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render0, libxcb-render-util0, libxcb-shape0, libxcb-shm0, libxcb-sync1, libxcb-xfixes0, libxcb-xinerama0, libxcb-xinput0
+          Homepage: https://github.com/jswysnemc/qt-img-viewer
+          Description: Qt 6 image viewer
+           Qt 6 image viewer with directory thumbnails, zoom, pan, animated GIF playback, and image-only floating mode.
+          EOF
+
+          fakeroot dpkg-deb --build "$DEBROOT" "$DISTDIR/qt-img-viewer_${{ steps.meta.outputs.version }}_amd64.deb"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qt-img-viewer-linux-x86_64
-          path: qt-img-viewer-linux-x86_64.tar.gz
+          name: qt-img-viewer-${{ steps.meta.outputs.version }}-linux-x86_64
+          path: |
+            dist/qt-img-viewer-*-linux-x86_64.tar.gz
+            dist/qt-img-viewer_*_amd64.deb
           if-no-files-found: error
+
+      - name: Upload release assets
+        if: steps.meta.outputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          files: |
+            dist/qt-img-viewer-*-linux-x86_64.tar.gz
+            dist/qt-img-viewer_*_amd64.deb

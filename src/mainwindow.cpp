@@ -1057,8 +1057,9 @@ void MainWindow::resizeFloatingWindowToImage()
     if (!imageSize.isValid()) {
         return;
     }
-    QSize targetViewportSize(qMax(1, qRound(imageSize.width() * m_imageView->zoomFactor())),
-                             qMax(1, qRound(imageSize.height() * m_imageView->zoomFactor())));
+    const double dpr = std::max(1.0, m_imageView->viewport() ? m_imageView->viewport()->devicePixelRatioF() : m_imageView->devicePixelRatioF());
+    QSize targetViewportSize(qMax(1, qRound(imageSize.width() * m_imageView->zoomFactor() / dpr)),
+                             qMax(1, qRound(imageSize.height() * m_imageView->zoomFactor() / dpr)));
 
     QScreen *screen = windowHandle() ? windowHandle()->screen() : QApplication::primaryScreen();
     if (!screen) {

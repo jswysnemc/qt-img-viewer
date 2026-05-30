@@ -38,6 +38,7 @@ signals:
 
 protected:
     void contextMenuEvent(QContextMenuEvent *event) override;
+    bool event(QEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -46,7 +47,11 @@ protected:
 
 private:
     void applyScale(double factor);
+    double displayDevicePixelRatio() const;
+    double sceneScaleFactor() const;
     void setZoomFactor(double factor);
+    void showSourcePixmap();
+    QSizeF targetLogicalSize() const;
     void updateDisplayedPixmap();
     void updateSceneRect();
     void zoomAt(const QPoint &position, double factor);
@@ -60,6 +65,7 @@ private:
     QPoint m_windowDragOffset;
     bool m_middlePanning = false;
     QPoint m_lastPanPosition;
+    qint64 m_displayPixmapCacheKey = 0;
     double m_zoomFactor = 1.0;
     bool m_fitMode = true;
 };
